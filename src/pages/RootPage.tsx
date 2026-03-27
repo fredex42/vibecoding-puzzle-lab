@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { javascript } from '@codemirror/lang-javascript'
-import { WebContainer, type FileSystemAPI, type WebContainerProcess } from '@webcontainer/api'
+import type { WebContainer } from '@webcontainer/api'
+import {
+  ContainerState,
+  createWebContainerRuntimeState,
+  maxDevServerLogs,
+  releaseWebContainer,
+  setupWebContainer,
+  writeRootFile,
+} from './webcontainer'
 import './RootPage.css'
 
 const initialCode = `import { createRoot } from 'react-dom/client'
@@ -62,332 +70,30 @@ const securePreviewDoc = `<!doctype html>
   <body></body>
 </html>`
 
-let sharedWebContainer: WebContainer | null = null;
-let sharedWebContainerBoot: Promise<WebContainer> | null = null;
-let sharedWebContainerConsumers = 0;
-let sharedProjectInitialization: Promise<void> | null = null;
-let sharedDevServerStart: Promise<string> | null = null;
-let sharedDevServerProcess: WebContainerProcess | null = null;
-let sharedPreviewUrl: string | null = null;
-const maxDevServerLogs = 500;
-const sharedDevServerLogBuffer: string[] = [];
-const sharedDevServerLogSubscribers = new Set<(line: string) => void>();
-
-function appendDevServerLog(line: string) {
-  if (!line) return;
-
-  sharedDevServerLogBuffer.push(line);
-  if (sharedDevServerLogBuffer.length > maxDevServerLogs) {
-    sharedDevServerLogBuffer.splice(0, sharedDevServerLogBuffer.length - maxDevServerLogs);
-  }
-
-  for (const subscriber of sharedDevServerLogSubscribers) {
-    subscriber(line);
-  }
-}
-
-function subscribeToDevServerLogs(subscriber: (line: string) => void) {
-  sharedDevServerLogSubscribers.add(subscriber);
-
-  for (const line of sharedDevServerLogBuffer) {
-    subscriber(line);
-  }
-
-  return () => {
-    sharedDevServerLogSubscribers.delete(subscriber);
-  };
-}
-
-async function streamDevServerOutput(process: WebContainerProcess) {
-  const reader = process.output.getReader();
-
-  try {
-    let pending = '';
-
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) {
-        if (pending.trim().length > 0) {
-          appendDevServerLog(pending.trimEnd());
-        }
-        break;
-      }
-
-      const chunk = `${pending}${value}`;
-      const lines = chunk.split(/\r?\n/);
-      pending = lines.pop() ?? '';
-
-      for (const line of lines) {
-        appendDevServerLog(line);
-      }
-    }
-  } catch (error) {
-    appendDevServerLog(`[system] failed to read dev server output: ${String(error)}`);
-  } finally {
-    reader.releaseLock();
-  }
-}
-
-async function streamCommandOutput(process: WebContainerProcess, prefix: string) {
-  const reader = process.output.getReader();
-
-  try {
-    let pending = '';
-
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) {
-        if (pending.trim().length > 0) {
-          appendDevServerLog(`${prefix} ${pending.trimEnd()}`);
-        }
-        break;
-      }
-
-      const chunk = `${pending}${value}`;
-      const lines = chunk.split(/\r?\n/);
-      pending = lines.pop() ?? '';
-
-      for (const line of lines) {
-        if (line.length > 0) {
-          appendDevServerLog(`${prefix} ${line}`);
-        }
-      }
-    }
-  } catch (error) {
-    appendDevServerLog(`[system] failed to read command output: ${String(error)}`);
-  } finally {
-    reader.releaseLock();
-  }
-}
-
-async function pathExists(fs: FileSystemAPI, path: string): Promise<boolean> {
-  try {
-    await fs.readFile(path, 'utf-8');
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function runCommand(
-  container: WebContainer,
-  command: string,
-  args: string[],
-  cwd = '/',
-) {
-  appendDevServerLog(`[setup] $ ${command} ${args.join(' ')}`);
-  const process = await container.spawn(command, args, {
-    cwd,
-    env: {
-      npm_config_yes: 'true',
-      CI: '1',
-    },
-  });
-  const outputTask = streamCommandOutput(process, '[setup]');
-  const exitCode = await process.exit;
-  appendDevServerLog(`[setup] command exited with code ${exitCode}`);
-  await outputTask;
-
-  if (exitCode !== 0) {
-    throw new Error(`${command} ${args.join(' ')} failed with exit code ${exitCode}`);
-  }
-}
-
-async function ensureProjectInitialized(container: WebContainer): Promise<void> {
-  if (sharedProjectInitialization) {
-    return sharedProjectInitialization;
-  }
-
-  sharedProjectInitialization = (async () => {
-    const fs = container.fs;
-
-    if (!(await pathExists(fs, '/app/package.json'))) {
-      await runCommand(container, 'npm', ['create', 'vite@latest', 'app', '--', '--template', 'react', '--no-interactive']);
-      await runCommand(container, 'npm', ['install'], '/app');
-      await runCommand(container, 'npm', ['install', '-D', 'tailwindcss@3', 'postcss', 'autoprefixer'], '/app');
-      await runCommand(container, 'npm', ['install', '@headlessui/react'], '/app');
-      await runCommand(container, 'npx', ['tailwindcss', 'init', '-p'], '/app');
-    } else {
-      appendDevServerLog('[setup] existing /app project detected, skipping scaffold step');
-    }
-
-    await fs.writeFile(
-      '/app/tailwind.config.js',
-      `/** @type {import('tailwindcss').Config} */
-export default {
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
-  theme: {
-    extend: {},
-  },
-  plugins: [],
-}
-`,
-    );
-
-    await fs.writeFile(
-      '/app/src/index.css',
-      `@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-html, body, #root {
-  height: 100%;
-}
-
-body {
-  margin: 0;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-}
-`,
-    );
-  })().catch((error) => {
-    sharedProjectInitialization = null;
-    throw error;
-  });
-
-  return sharedProjectInitialization;
-}
-
-async function ensureDevServerRunning(container: WebContainer): Promise<string> {
-  if (sharedPreviewUrl) {
-    return sharedPreviewUrl;
-  }
-
-  if (sharedDevServerStart) {
-    return sharedDevServerStart;
-  }
-
-  sharedDevServerStart = new Promise<string>(async (resolve, reject) => {
-    appendDevServerLog('[system] starting Vite dev server...');
-    let settled = false;
-    const timeout = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      reject(new Error('Timed out waiting for Vite dev server'));
-    }, 30000);
-
-    const unsubscribe = container.on('server-ready', (_port, url) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      unsubscribe();
-      sharedPreviewUrl = url;
-      appendDevServerLog(`[system] dev server ready at ${url}`);
-      resolve(url);
-    });
-
-    try {
-      sharedDevServerProcess = await container.spawn(
-        'npm',
-        ['run', 'dev', '--', '--host', '0.0.0.0', '--port', '5173'],
-        { cwd: '/app' },
-      );
-
-      void streamDevServerOutput(sharedDevServerProcess);
-
-      sharedDevServerProcess.exit.then((exitCode) => {
-        appendDevServerLog(`[system] dev server exited with code ${exitCode}`);
-        if (exitCode !== 0 && !settled) {
-          settled = true;
-          clearTimeout(timeout);
-          unsubscribe();
-          reject(new Error(`Vite dev server exited with code ${exitCode}`));
-        }
-
-        sharedDevServerProcess = null;
-        sharedDevServerStart = null;
-        sharedPreviewUrl = null;
-      }).catch(() => {
-        appendDevServerLog('[system] dev server process ended unexpectedly');
-        sharedDevServerProcess = null;
-        sharedDevServerStart = null;
-        sharedPreviewUrl = null;
-      });
-    } catch (error) {
-      clearTimeout(timeout);
-      unsubscribe();
-      reject(error);
-    }
-  }).catch((error) => {
-    sharedDevServerStart = null;
-    throw error;
-  });
-
-  return sharedDevServerStart;
-}
-
-async function writeRootFile(container: WebContainer, sourceCode: string) {
-  await container.fs.writeFile('/app/src/main.jsx', sourceCode);
-}
-
-async function acquireWebContainer(): Promise<WebContainer> {
-  sharedWebContainerConsumers += 1;
-
-  if (!sharedWebContainerBoot) {
-    sharedWebContainerBoot = WebContainer.boot().then((container) => {
-      sharedWebContainer = container;
-
-      if (sharedWebContainerConsumers === 0) {
-        container.teardown();
-        sharedWebContainer = null;
-        sharedWebContainerBoot = null;
-      }
-
-      return container;
-    }).catch((error) => {
-      sharedWebContainerBoot = null;
-      sharedWebContainer = null;
-      throw error;
-    });
-  }
-
-  return sharedWebContainerBoot;
-}
-
-function releaseWebContainer() {
-  sharedWebContainerConsumers = Math.max(0, sharedWebContainerConsumers - 1);
-
-  if (sharedWebContainerConsumers === 0 && sharedWebContainer) {
-    sharedWebContainer.teardown();
-    sharedWebContainer = null;
-    sharedWebContainerBoot = null;
-    sharedProjectInitialization = null;
-    sharedDevServerStart = null;
-    sharedDevServerProcess = null;
-    sharedPreviewUrl = null;
-  }
-}
-
-enum ContainerState {
-    NotReady = 'not_ready',
-    Booting = 'booting',
-    Busy = 'busy',
-    Ready = 'ready',
-    Error = 'error',
-};
-
 function RootPage() {
-  const [code, setCode] = useState(initialCode);
-  const [containerState, setContainerState] = useState<ContainerState>(ContainerState.NotReady);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [devServerLogs, setDevServerLogs] = useState<string[]>([]);
+  const [code, setCode] = useState(initialCode)
+  const [containerState, setContainerState] = useState<ContainerState>(ContainerState.NotReady)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [devServerLogs, setDevServerLogs] = useState<string[]>([])
   const extensions = useMemo(() => [javascript()], [])
-  const webContainerRef = useRef<WebContainer | null>(null);
-  const logsViewportRef = useRef<HTMLPreElement | null>(null);
+  const webContainerRef = useRef<WebContainer | null>(null)
+  const runtimeRef = useRef(createWebContainerRuntimeState())
+  const logsViewportRef = useRef<HTMLPreElement | null>(null)
 
-  useEffect(() => {
-    const unsubscribe = subscribeToDevServerLogs((line) => {
-      setDevServerLogs((previous) => {
-        const next = [...previous, line];
-        if (next.length > maxDevServerLogs) {
-          return next.slice(next.length - maxDevServerLogs);
-        }
-        return next;
-      });
-    });
+  const [progressBarValue, setProgressBarValue] = useState(0);
+  const [progressBarTotal, setProgressBarTotal] = useState(0);
 
-    return unsubscribe;
-  }, []);
+  function addDevServerLog(line: string) {
+    if (!line) return
+
+    setDevServerLogs((previous) => {
+      const next = [...previous, line]
+      if (next.length > maxDevServerLogs) {
+        return next.slice(next.length - maxDevServerLogs)
+      }
+      return next
+    })
+  }
 
   useEffect(() => {
     if (!logsViewportRef.current) return;
@@ -398,39 +104,37 @@ function RootPage() {
   useEffect(() => {
     let isDisposed = false;
 
-    async function setupWebContainer() {
-        appendDevServerLog('[system] booting WebContainer...');
-        setContainerState(ContainerState.Booting);
-        const webContainerInstance = await acquireWebContainer();
-        webContainerRef.current = webContainerInstance;
-        appendDevServerLog('[system] WebContainer boot complete');
+    async function initializeContainer() {
+      const { container, previewUrl: url } = await setupWebContainer(runtimeRef.current, code, addDevServerLog, (stage) => {
+        if (stage === 'booting') {
+          setContainerState(ContainerState.Booting)
+          return
+        }
 
-        if (isDisposed) return;
+        setContainerState(ContainerState.Busy)
+      },(counter, total) => {
+        setProgressBarValue(counter ?? 0);
+        setProgressBarTotal(total ?? 0);
+      }
+    )
 
-        setContainerState(ContainerState.Busy);
-        appendDevServerLog('[system] initializing project...');
-        await ensureProjectInitialized(webContainerInstance);
-        appendDevServerLog('[system] writing /app/src/main.jsx');
-        await writeRootFile(webContainerInstance, code);
-        appendDevServerLog('[system] starting preview server...');
-        const url = await ensureDevServerRunning(webContainerInstance);
+      if (isDisposed) return
 
-        if (isDisposed) return;
-
-        setPreviewUrl(url);
-        setContainerState(ContainerState.Ready);
+      webContainerRef.current = container
+      setPreviewUrl(url)
+      setContainerState(ContainerState.Ready)
     }
 
-    setupWebContainer().catch((error) => {
-        console.error('Error setting up WebContainer:', error)
-      appendDevServerLog(`[system] setup error: ${String(error)}`);
-        setContainerState(ContainerState.Error);
-    });
+    initializeContainer().catch((error) => {
+      console.error('Error setting up WebContainer:', error)
+      addDevServerLog(`[system] setup error: ${String(error)}`)
+      setContainerState(ContainerState.Error)
+    })
 
     return () => {
       isDisposed = true;
       webContainerRef.current = null;
-      releaseWebContainer();
+      releaseWebContainer(runtimeRef.current)
     }
   }, []);
 
@@ -460,7 +164,17 @@ function RootPage() {
       </section>
 
       <section className="preview-column" aria-label="Preview panel">
-        <span>Container state: {containerState}</span>
+        <div className="state-container">
+          <span>Container state: {containerState}</span>
+          {progressBarTotal > 0 && (
+            <div className="progress-bar-wrapper">
+              <div 
+                className="progress-bar" 
+                style={{ width: `${(progressBarValue / progressBarTotal) * 100}%` }}
+              />
+            </div>
+          )}
+        </div>
         <iframe
           title="Preview"
           className="preview-frame"
