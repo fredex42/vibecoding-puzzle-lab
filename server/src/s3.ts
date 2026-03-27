@@ -10,7 +10,8 @@ export async function getFromS3(bucket: string, key: string): Promise<Uint8Array
     return response.Body.transformToByteArray();
 }
 
-export async function putToS3(bucket: string, key: string, body: Uint8Array): Promise<void> {
+export async function putToS3(bucket: string, key: string, body: Buffer): Promise<void> {
     const command = new PutObjectCommand({ Bucket: bucket, Key: key, Body: body });
-    await s3Client.send(command);
+    const response = await s3Client.send(command);
+    console.log(`Wrote ${key} to bucket ${bucket} with size ${response.Size} on S3. Buffer size was ${body.length}`);
 }

@@ -25,7 +25,7 @@ export async function createApp(): Promise<Express> {
       return;
     }
     try {
-      await putToS3(bucket, `bundles/${bundleId}.zip`, new Uint8Array(req.body as Buffer));
+      await putToS3(bucket, `bundles/${bundleId}.zip`, req.body as Buffer);
       res.json({ ok: true });
     } catch(err) {
       console.error(`Cannot write bundle with ID ${bundleId} to S3:`, err);
