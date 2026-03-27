@@ -74,14 +74,27 @@ export async function createApp(): Promise<Express> {
         return;
       }
 
-      const result = await callBedrock({
-        messages: [userMessage(sanitizedPromptText), assistantMessage("{\"jsx\":")],
-        maxTokens: 60000,
-        modelId: config['bedrock_model_id'],
-      });
+      const helperPrefix = "{\"jsx\":";
+      let messages = [userMessage(sanitizedPromptText), assistantMessage(helperPrefix)];
 
-      const responseJson = extractJson(result.response, "{\"jsx\":");
-      res.json(responseJson);
+      while(1) {
+        const result = await callBedrock({
+          messages,
+          maxTokens: 60000,
+          modelId: config['bedrock_model_id'],
+        });
+
+        try {
+          const responseJson = extractJson(result.response, helperPrefix);
+          res.json(responseJson);
+          return;
+        } catch(err) {
+          console.warn("Failed to parse Bedrock response as JSON, adding more context and retrying:", err);
+          messages.push(userMessage(`I couldn't parse this json: ${helperPrefix + extractText(result.response)}`));
+          messages.push(assistantMessage(helperPrefix));
+        }
+      }
+      
     } catch (err) {
       console.error(`Error calling Bedrock for bundle ${bundleId}:`, err);
       res.status(500).json({ error: 'Failed to generate response' });

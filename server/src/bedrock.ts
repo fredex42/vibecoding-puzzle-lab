@@ -233,7 +233,7 @@ The component should not attempt to access or manipulate the DOM outside of its 
  out of the iframe in which it is rendered.
 
 The javascript you create will be used as the "root" jsx file for the puzzle.  You cannot create additional files
-and you must mount the react component at the root of the file.  
+and you must mount the react component at the root of the file.  You should ensure that you 'import './index.css'' at the top of your file and use Tailwind classes for styling.
 You can include any CSS within the same file using Tailwind classes, but you cannot create separate CSS files.
 
 Anti-patterns that must be avoided include:

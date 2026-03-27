@@ -83,6 +83,7 @@ function Editor() {
   const [code, setCode] = useState("");
   const [containerState, setContainerState] = useState<ContainerState>(ContainerState.NotReady)
   const [modelState, setModelState] = useState<ModelState>(ModelState.Ready);
+  const [wrapLines, setWrapLines] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [devServerLogs, setDevServerLogs] = useState<string[]>([])
   const extensions = useMemo(() => [javascript({ jsx: true })], [])
@@ -195,6 +196,7 @@ function Editor() {
   useEffect(() => {
     async function updateCodeInContainer() {
         const webContainerInstance = webContainerRef.current;
+        console.log("Updating code in container. Current state:", { containerState, hasInstance: !!webContainerInstance });
         if (containerState !== ContainerState.Ready || !webContainerInstance) return;
 
         await writeRootFile(webContainerInstance, code);
@@ -207,16 +209,18 @@ function Editor() {
   }, [code, containerState]);
   
   const codeDidChange = (value: string) => {
-    const timeoutId = setTimeout(()=>setCode(value), 1000);
-    return () => clearTimeout(timeoutId);
+    setCode(value);
+    // const timeoutId = setTimeout(()=>setCode(value), 1000);
+    // return () => clearTimeout(timeoutId);
   }
   
   return (
-    <main className="root-page" data-bundle-id={bundleId ?? ''}>
+    <main className="root-page">
       <section className="editor-column" aria-label="JavaScript editor">
         <CodeMirror
           value={code}
           height="100%"
+          className={wrapLines ? 'cm-wrap-lines' : undefined}
           extensions={extensions}
           onChange={codeDidChange}
         />
@@ -226,6 +230,14 @@ function Editor() {
         <div className="state-container">
           <span style={{marginRight: "1em"}}>Container state: {containerState}</span>
           <span>Model state: {modelState}</span>
+          <label>
+            <input
+              type="checkbox"
+              checked={wrapLines}
+              onChange={(event) => setWrapLines(event.target.checked)}
+            />
+            Wrap lines
+          </label>
           {progressBarTotal > 0 && (
             <div className="progress-bar-wrapper">
               <div 
