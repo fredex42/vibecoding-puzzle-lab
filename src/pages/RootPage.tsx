@@ -1,10 +1,54 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { javascript } from '@codemirror/lang-javascript'
-import { WebContainer } from '@webcontainer/api'
+import { WebContainer, type FileSystemAPI, type WebContainerProcess } from '@webcontainer/api'
 import './RootPage.css'
 
-const initialCode = `// Start coding\n`
+const initialCode = `import { createRoot } from 'react-dom/client'
+import { useState } from 'react'
+import { Switch } from '@headlessui/react'
+import './index.css'
+
+function App() {
+  const [enabled, setEnabled] = useState(true)
+
+  return (
+    <main className="min-h-screen bg-slate-900 text-slate-100 grid place-items-center p-8">
+      <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-800/80 p-6 shadow-xl">
+        <h1 className="text-2xl font-bold">WebContainer Playground</h1>
+        <p className="mt-2 text-slate-300">Tailwind + Headless UI are ready.</p>
+
+        <div className="mt-6 flex items-center justify-between">
+          <span className="font-medium">Enable preview card</span>
+          <Switch
+            checked={enabled}
+            onChange={setEnabled}
+            className={
+              (enabled ? 'bg-emerald-500' : 'bg-slate-600') +
+              ' relative inline-flex h-6 w-11 items-center rounded-full transition'
+            }
+          >
+            <span
+              className={
+                (enabled ? 'translate-x-6' : 'translate-x-1') +
+                ' inline-block h-4 w-4 transform rounded-full bg-white transition'
+              }
+            />
+          </Switch>
+        </div>
+
+        {enabled && (
+          <div className="mt-6 rounded-xl border border-slate-600 bg-slate-700/50 p-4">
+            Edit this file and the preview will hot-update.
+          </div>
+        )}
+      </div>
+    </main>
+  )
+}
+
+createRoot(document.getElementById('root')).render(<App />)
+`
 const securePreviewDoc = `<!doctype html>
 <html lang="en">
   <head>
@@ -21,6 +65,152 @@ const securePreviewDoc = `<!doctype html>
 let sharedWebContainer: WebContainer | null = null;
 let sharedWebContainerBoot: Promise<WebContainer> | null = null;
 let sharedWebContainerConsumers = 0;
+let sharedProjectInitialization: Promise<void> | null = null;
+let sharedDevServerStart: Promise<string> | null = null;
+let sharedDevServerProcess: WebContainerProcess | null = null;
+let sharedPreviewUrl: string | null = null;
+
+async function pathExists(fs: FileSystemAPI, path: string): Promise<boolean> {
+  try {
+    await fs.readFile(path, 'utf-8');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function runCommand(
+  container: WebContainer,
+  command: string,
+  args: string[],
+  cwd = '/',
+) {
+  const process = await container.spawn(command, args, { cwd });
+  const exitCode = await process.exit;
+
+  if (exitCode !== 0) {
+    throw new Error(`${command} ${args.join(' ')} failed with exit code ${exitCode}`);
+  }
+}
+
+async function ensureProjectInitialized(container: WebContainer): Promise<void> {
+  if (sharedProjectInitialization) {
+    return sharedProjectInitialization;
+  }
+
+  sharedProjectInitialization = (async () => {
+    const fs = container.fs;
+
+    if (!(await pathExists(fs, '/app/package.json'))) {
+      await runCommand(container, 'npm', ['create', 'vite@latest', 'app', '--', '--template', 'react']);
+      await runCommand(container, 'npm', ['install'], '/app');
+      await runCommand(container, 'npm', ['install', '-D', 'tailwindcss@3', 'postcss', 'autoprefixer'], '/app');
+      await runCommand(container, 'npm', ['install', '@headlessui/react'], '/app');
+      await runCommand(container, 'npx', ['tailwindcss', 'init', '-p'], '/app');
+    }
+
+    await fs.writeFile(
+      '/app/tailwind.config.js',
+      `/** @type {import('tailwindcss').Config} */
+export default {
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+}
+`,
+    );
+
+    await fs.writeFile(
+      '/app/src/index.css',
+      `@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+`,
+    );
+  })().catch((error) => {
+    sharedProjectInitialization = null;
+    throw error;
+  });
+
+  return sharedProjectInitialization;
+}
+
+async function ensureDevServerRunning(container: WebContainer): Promise<string> {
+  if (sharedPreviewUrl) {
+    return sharedPreviewUrl;
+  }
+
+  if (sharedDevServerStart) {
+    return sharedDevServerStart;
+  }
+
+  sharedDevServerStart = new Promise<string>(async (resolve, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error('Timed out waiting for Vite dev server'));
+    }, 30000);
+
+    const unsubscribe = container.on('server-ready', (_port, url) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      unsubscribe();
+      sharedPreviewUrl = url;
+      resolve(url);
+    });
+
+    try {
+      sharedDevServerProcess = await container.spawn(
+        'npm',
+        ['run', 'dev', '--', '--host', '0.0.0.0', '--port', '5173'],
+        { cwd: '/app' },
+      );
+
+      sharedDevServerProcess.exit.then((exitCode) => {
+        if (exitCode !== 0 && !settled) {
+          settled = true;
+          clearTimeout(timeout);
+          unsubscribe();
+          reject(new Error(`Vite dev server exited with code ${exitCode}`));
+        }
+
+        sharedDevServerProcess = null;
+        sharedDevServerStart = null;
+        sharedPreviewUrl = null;
+      }).catch(() => {
+        sharedDevServerProcess = null;
+        sharedDevServerStart = null;
+        sharedPreviewUrl = null;
+      });
+    } catch (error) {
+      clearTimeout(timeout);
+      unsubscribe();
+      reject(error);
+    }
+  }).catch((error) => {
+    sharedDevServerStart = null;
+    throw error;
+  });
+
+  return sharedDevServerStart;
+}
+
+async function writeRootFile(container: WebContainer, sourceCode: string) {
+  await container.fs.writeFile('/app/src/main.jsx', sourceCode);
+}
 
 async function acquireWebContainer(): Promise<WebContainer> {
   sharedWebContainerConsumers += 1;
@@ -53,6 +243,10 @@ function releaseWebContainer() {
     sharedWebContainer.teardown();
     sharedWebContainer = null;
     sharedWebContainerBoot = null;
+    sharedProjectInitialization = null;
+    sharedDevServerStart = null;
+    sharedDevServerProcess = null;
+    sharedPreviewUrl = null;
   }
 }
 
@@ -67,58 +261,56 @@ enum ContainerState {
 function RootPage() {
   const [code, setCode] = useState(initialCode);
   const [containerState, setContainerState] = useState<ContainerState>(ContainerState.NotReady);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const extensions = useMemo(() => [javascript()], [])
-
-  let webContainerInstance: WebContainer | null = null;
+  const webContainerRef = useRef<WebContainer | null>(null);
 
   useEffect(() => {
     let isDisposed = false;
 
     async function setupWebContainer() {
         setContainerState(ContainerState.Booting);
-        webContainerInstance = await acquireWebContainer();
+        const webContainerInstance = await acquireWebContainer();
+        webContainerRef.current = webContainerInstance;
 
         if (isDisposed) return;
 
-        setContainerState(ContainerState.Busy)
-        const fs = webContainerInstance.fs
-        await fs.mkdir('/app')
-        await fs.writeFile('/app/index.js', code);
+        setContainerState(ContainerState.Busy);
+        await ensureProjectInitialized(webContainerInstance);
+        await writeRootFile(webContainerInstance, code);
+        const url = await ensureDevServerRunning(webContainerInstance);
 
         if (isDisposed) return;
 
+        setPreviewUrl(url);
         setContainerState(ContainerState.Ready);
     }
 
-    setupWebContainer().then(() => {
-        console.log('WebContainer setup complete');
-        setContainerState(ContainerState.Ready);
-    }).catch((error) => {
+    setupWebContainer().catch((error) => {
         console.error('Error setting up WebContainer:', error)
         setContainerState(ContainerState.Error);
     });
 
     return () => {
       isDisposed = true;
+      webContainerRef.current = null;
       releaseWebContainer();
     }
   }, []);
 
-  useEffect(()=>{
+  useEffect(() => {
     async function updateCodeInContainer() {
+        const webContainerInstance = webContainerRef.current;
         if (containerState !== ContainerState.Ready || !webContainerInstance) return;
 
-        setContainerState(ContainerState.Busy);
-        const fs = webContainerInstance.fs;
-        await fs.writeFile('/app/index.js', code);
-        setContainerState(ContainerState.Ready);
+        await writeRootFile(webContainerInstance, code);
     }
 
     updateCodeInContainer().catch((error) => {
         console.error('Error updating code in WebContainer:', error);
         setContainerState(ContainerState.Error);
     });
-  })
+  }, [code, containerState]);
   
   return (
     <main className="root-page">
@@ -136,8 +328,9 @@ function RootPage() {
         <iframe
           title="Preview"
           className="preview-frame"
-          srcDoc={securePreviewDoc}
-          sandbox=""
+          src={previewUrl ?? undefined}
+          srcDoc={previewUrl ? undefined : securePreviewDoc}
+          sandbox="allow-scripts allow-same-origin"
           referrerPolicy="no-referrer"
           allow="camera 'none'; geolocation 'none'; microphone 'none'; payment 'none'; usb 'none'; fullscreen 'none';"
         />
