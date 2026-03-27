@@ -2,37 +2,32 @@ import { WebContainer, type FileSystemAPI } from '@webcontainer/api'
 import JSZip from 'jszip'
 
 /**
- * Recursively reads all files from a directory in the WebContainer filesystem
+ * Recursively adds files from a directory to a zip, processing one file at a time
  */
-async function readDirectoryRecursive(
+async function addDirectoryToZip(
   fs: FileSystemAPI,
+  zip: JSZip,
   path: string
-): Promise<Map<string, Uint8Array>> {
-  const files = new Map<string, Uint8Array>()
+): Promise<void> {
   const entries = await fs.readdir(path, { withFileTypes: true })
 
   for (const entry of entries) {
     const fullPath = `${path}/${entry.name}`.replace(/^\//, '')
 
     if (entry.isDirectory?.()) {
-      const subFiles = await readDirectoryRecursive(fs, fullPath)
-      for (const [subPath, content] of subFiles) {
-        files.set(subPath, content)
-      }
+      await addDirectoryToZip(fs, zip, fullPath)
     } else if (entry.isFile?.()) {
       const content = await fs.readFile(fullPath)
-      files.set(fullPath, content)
+      zip.file(fullPath, content)
     }
   }
-
-  return files
 }
 
 /**
  * Zips the contents of the WebContainer's filesystem and POSTs it to a webservice
  * @param webContainer - The WebContainer instance
- * @param sourceDir - The directory to zip (default: '/')
  * @param serviceUrl - The URL endpoint to POST the zip to
+ * @param sourceDir - The directory to zip (default: '/')
  * @returns Promise resolving to the server response
  */
 export async function uploadFilesystem(
@@ -42,16 +37,11 @@ export async function uploadFilesystem(
 ): Promise<Response> {
   const fs = webContainer.fs
 
-  // Read all files from the directory
-  const files = await readDirectoryRecursive(fs, sourceDir)
-
   // Create a new zip file
   const zip = new JSZip()
 
-  // Add all files to the zip
-  for (const [filePath, content] of files) {
-    zip.file(filePath, content)
-  }
+  // Add files to the zip one at a time
+  await addDirectoryToZip(fs, zip, sourceDir)
 
   // Generate the zip file as a blob
   const zipBlob = await zip.generateAsync({ type: 'blob' })
