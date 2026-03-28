@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router";
 import CodeMirror from "@uiw/react-codemirror";
 import { javascript } from "@codemirror/lang-javascript";
-import { ContainerState } from "./webcontainer";
+import { ContainerState } from "../utils/webcontainer";
 import "./Editor.css";
 import { ModelResponse } from "./models";
 import { initialCode } from "./InitialContent";
-import { PreviewFrame, type PreviewError } from "./PreviewFrame";
+import { PreviewFrame, type PreviewError } from "../components/PreviewFrame";
 
 enum ModelState {
   Ready = "ready",

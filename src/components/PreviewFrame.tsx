@@ -6,9 +6,9 @@ import {
   releaseWebContainer,
   setupWebContainer,
   writeRootFile,
-} from "./webcontainer";
+} from "../utils/webcontainer";
 import type { WebContainer } from "@webcontainer/api";
-import { securePreviewDoc } from "./InitialContent";
+import { securePreviewDoc } from "../pages/InitialContent";
 
 interface PreviewFrameProps {
   code: string;
@@ -230,14 +230,6 @@ export const PreviewFrame: React.FC<PreviewFrameProps> = ({
 
   return (
     <>
-        {previewCrashed ? (
-          <span>🛑 The preview crashed. We are trying to find out why....</span>
-        ) : undefined}
-        {previewCrashed && lastPreviewError && lastPreviewError.message && (
-          <div className="error-message">
-            <strong>Error message:</strong> {lastPreviewError.message}
-          </div>
-        )}
       <iframe
         title="Preview"
         className="preview-frame"
@@ -248,6 +240,16 @@ export const PreviewFrame: React.FC<PreviewFrameProps> = ({
         referrerPolicy="no-referrer"
         allow="camera 'none'; geolocation 'none'; microphone 'none'; payment 'none'; usb 'none'; fullscreen 'none';"
       />
+
+      <div style={{ overflow: "auto" }}>
+        {previewCrashed ? (
+          <span>🛑 The preview crashed. We are trying to find out why....</span>
+        ) : undefined}
+        {previewCrashed && lastPreviewError && lastPreviewError.message && (
+          <div className="error-message">
+            <strong>Error message:</strong> {lastPreviewError.message}
+          </div>
+        )}
 
       <div className="dev-server-logs" aria-label="Dev server logs">
         <div className="dev-server-logs-header">
@@ -266,6 +268,7 @@ export const PreviewFrame: React.FC<PreviewFrameProps> = ({
             : "No output yet."}
         </pre>
       </div>
+            </div>
     </>
   );
 };
