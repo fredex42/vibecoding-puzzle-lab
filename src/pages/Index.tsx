@@ -7,7 +7,7 @@ function Index() {
   const handleLetsDoIt = async () => {
     localStorage.setItem('temp-prompt-cache', textContent);
     const newUuid = crypto.randomUUID();
-    nav(`/bundle/${newUuid}`);
+    nav(`/bundle/${newUuid}/editor`);
   }
 
   return (

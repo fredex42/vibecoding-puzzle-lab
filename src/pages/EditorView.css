@@ -1,0 +1,218 @@
+.editor-view-page {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) 1fr;
+  gap: 16px;
+  height: 100vh;
+  padding: 16px;
+  overflow: hidden;
+  position: relative;
+  background:
+    radial-gradient(circle at 10% 15%, #e7f6ff 0%, transparent 35%),
+    radial-gradient(circle at 90% 5%, #fdf5e9 0%, transparent 40%),
+    #f8fafc;
+}
+
+.editor-view-page.panel-closed {
+  grid-template-columns: 1fr;
+}
+
+.editor-view-page.panel-closed .editor-view-toolbar {
+  padding-left: 240px;
+}
+
+.editor-view-side-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid #d7dce4;
+  border-radius: 14px;
+  background: #ffffffde;
+  backdrop-filter: blur(2px);
+  overflow: hidden;
+}
+
+.editor-view-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid #e3e8ef;
+}
+
+.editor-view-panel-header h2 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.panel-toggle-button {
+  border: 1px solid #c3cfde;
+  background: #f4f8ff;
+  color: #14213d;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.panel-toggle-button:hover {
+  background: #e9f1ff;
+}
+
+.editor-view-panel-content {
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+}
+
+.editor-view-panel-kicker {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+  color: #667085;
+}
+
+.editor-view-panel-placeholder {
+  border: 1px dashed #afbdd1;
+  border-radius: 10px;
+  padding: 14px;
+  color: #344054;
+  background: #fbfdff;
+}
+
+.editor-view-main {
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 12px;
+}
+
+.editor-view-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #ffffffd4;
+  border: 1px solid #d7dce4;
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.editor-view-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.panel-expander-floating-button {
+  position: absolute;
+  top: 22px;
+  left: 22px;
+  z-index: 5;
+  border: 1px solid #c3cfde;
+  background: #f4f8ff;
+  color: #14213d;
+  border-radius: 999px;
+  padding: 7px 13px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.1);
+}
+
+.panel-expander-floating-button:hover {
+  background: #e9f1ff;
+}
+
+.editor-view-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  color: #334155;
+  font-size: 0.9rem;
+}
+
+.mode-switch-button {
+  appearance: none;
+  text-decoration: none;
+  border: 1px solid #134074;
+  color: #134074;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-weight: 600;
+  background: #f3f9ff;
+  cursor: pointer;
+  transition: background-color 0.12s ease, transform 0.12s ease;
+}
+
+.mode-switch-button:hover {
+  background: #e4f1ff;
+}
+
+.mode-switch-button:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.mode-switch-button:active {
+  transform: translateY(1px);
+}
+
+.editor-view-progress {
+  height: 10px;
+}
+
+.editor-view-preview-stage {
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+}
+
+.editor-view-preview-shell {
+  width: min(1100px, 100%);
+  height: min(78vh, 100%);
+  min-height: 380px;
+  border: 1px solid #cad5e5;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 16px 40px rgba(12, 74, 110, 0.12);
+  background: #fff;
+}
+
+@media (max-width: 950px) {
+  .editor-view-page {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .editor-view-side-panel {
+    width: 100%;
+  }
+
+  .editor-view-toolbar {
+    flex-wrap: wrap;
+    padding-left: 12px;
+  }
+
+  .editor-view-toolbar-left {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+
+  .editor-view-preview-shell {
+    height: min(70vh, 100%);
+    min-height: 320px;
+  }
+
+  .panel-expander-floating-button {
+    top: 20px;
+    left: 20px;
+  }
+}

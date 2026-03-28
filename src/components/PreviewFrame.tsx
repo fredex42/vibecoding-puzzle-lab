@@ -17,6 +17,7 @@ interface PreviewFrameProps {
   setProgressBarTotal: (total: number) => void;
   containerStateDidChange?: (state: ContainerState) => void;
   logsDidChange?: (logs: string[]) => void;
+  showLogs?: boolean;
 }
 
 export type PreviewError = {
@@ -36,6 +37,7 @@ export const PreviewFrame: React.FC<PreviewFrameProps> = ({
   setProgressBarTotal,
   containerStateDidChange,
   logsDidChange,
+  showLogs = true,
 }) => {
   const [previewCrashed, setPreviewCrashed] = useState(false);
   const [lastPreviewError, setLastPreviewError] = useState<PreviewError | null>(
@@ -252,23 +254,25 @@ export const PreviewFrame: React.FC<PreviewFrameProps> = ({
           </div>
         )}
 
-      <div className="dev-server-logs" aria-label="Dev server logs">
-        <div className="dev-server-logs-header">
-          <strong>Dev server output (stdout/stderr)</strong>
-          <button
-            type="button"
-            className="clear-logs-button"
-            onClick={() => setDevServerLogs([])}
-          >
-            Clear
-          </button>
+      {showLogs && (
+        <div className="dev-server-logs" aria-label="Dev server logs">
+          <div className="dev-server-logs-header">
+            <strong>Dev server output (stdout/stderr)</strong>
+            <button
+              type="button"
+              className="clear-logs-button"
+              onClick={() => setDevServerLogs([])}
+            >
+              Clear
+            </button>
+          </div>
+          <pre ref={logsViewportRef} className="dev-server-logs-output">
+            {devServerLogs.length > 0
+              ? devServerLogs.join("\n")
+              : "No output yet."}
+          </pre>
         </div>
-        <pre ref={logsViewportRef} className="dev-server-logs-output">
-          {devServerLogs.length > 0
-            ? devServerLogs.join("\n")
-            : "No output yet."}
-        </pre>
-      </div>
+      )}
             </div>
     </>
   );

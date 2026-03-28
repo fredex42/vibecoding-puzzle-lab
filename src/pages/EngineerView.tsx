@@ -23,18 +23,12 @@ interface EngineerViewProps {
 }
 
 function EngineerView({
-  bundleId,
-  setModelState,
   modelState,
   code,
   setCode,
-  modelNotes,
-  setModelNotes,
   containerState,
   setContainerState,
   lastPreviewError,
-  setLastPreviewError,
-  devServerLogs,
   setDevServerLogs,
   handlePreviewError
 }: EngineerViewProps) {

@@ -5,6 +5,7 @@ import { debugFault, generateBundleFromCachedPrompt, ModelState } from "../utils
 import type { PreviewError } from "../components/PreviewFrame";
 import { initialCode } from "./InitialContent";
 import EngineerView from "./EngineerView";
+import EditorView from "./EditorView";
 
 export function PuzzleEditor() {
     const { bundleId, mode } = useParams<{ bundleId: string, mode: string }>();
@@ -104,6 +105,18 @@ export function PuzzleEditor() {
           lastPreviewError={lastPreviewError}
           setLastPreviewError={setLastPreviewError}
           devServerLogs={devServerLogs}
+          setDevServerLogs={setDevServerLogs}
+          handlePreviewError={handlePreviewError}
+        />
+      );
+    case 'editor':
+      return (
+        <EditorView
+          bundleId={bundleId ?? ""}
+          code={code}
+          modelState={modelState}
+          containerState={containerState}
+          setContainerState={setContainerState}
           setDevServerLogs={setDevServerLogs}
           handlePreviewError={handlePreviewError}
         />
