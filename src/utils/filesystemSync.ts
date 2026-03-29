@@ -1,6 +1,10 @@
 import { WebContainer, type FileSystemAPI } from '@webcontainer/api'
 import JSZip from 'jszip'
 
+type PresignedUploadResponse = {
+  uploadUrl?: string
+}
+
 /**
  * Recursively adds files from a directory to a zip, processing one file at a time
  */
@@ -46,20 +50,34 @@ export async function uploadFilesystem(
   // Generate the zip file as a blob
   const zipBlob = await zip.generateAsync({ type: 'blob' })
 
-  // POST the zip to the webservice
-  const response = await fetch(serviceUrl, {
+  // Ask the API for a short-lived presigned PUT URL.
+  const presignResponse = await fetch(serviceUrl, {
     method: 'POST',
+  })
+
+  if (!presignResponse.ok) {
+    throw new Error(`Failed to prepare filesystem upload: ${presignResponse.statusText}`)
+  }
+
+  const { uploadUrl } = (await presignResponse.json()) as PresignedUploadResponse
+  if (!uploadUrl) {
+    throw new Error('Failed to prepare filesystem upload: missing upload URL')
+  }
+
+  // Upload the zip directly to S3.
+  const uploadResponse = await fetch(uploadUrl, {
+    method: 'PUT',
     headers: {
       'Content-Type': 'application/zip',
     },
     body: zipBlob,
   })
 
-  if (!response.ok) {
-    throw new Error(`Failed to upload filesystem: ${response.statusText}`)
+  if (!uploadResponse.ok) {
+    throw new Error(`Failed to upload filesystem: ${uploadResponse.statusText}`)
   }
 
-  return response
+  return uploadResponse
 }
 
 export enum DownloadState {

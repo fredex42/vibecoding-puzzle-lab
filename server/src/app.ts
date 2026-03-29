@@ -1,6 +1,6 @@
-import express, { Express, Request, response, Response } from 'express';
+import express, { Express, Request, Response } from 'express';
 import { getConfig } from './config.js';
-import { putToS3, getFromS3 } from './s3.js';
+import { createPresignedDownloadUrl, createPresignedUploadUrl, objectExistsInS3 } from './s3.js';
 import { callBedrock, userMessage, extractText, assistantMessage, extractJson } from './bedrock.js';
 import { DebugRequest } from './models.js';
 
@@ -139,24 +139,28 @@ export async function createApp(): Promise<Express> {
     }
   });
 
-  // Save a bundle to S3
-  app.post('/api/bundle/:bundleId', express.raw({ type: '*/*', limit: '500mb' }), async (req: Request, res: Response) => {
+  // Create a short-lived presigned URL for uploading a bundle directly to S3.
+  app.post('/api/bundle/:bundleId', async (req: Request, res: Response) => {
     const { bundleId } = req.params;
     const bucket = config['s3_bucket'];
     if (!bucket) {
       res.status(500).json({ error: 'S3 bucket not configured' });
       return;
     }
+
+    const expiresInSeconds = 300;
+    const key = `bundles/${bundleId}.zip`;
+
     try {
-      await putToS3(bucket, `bundles/${bundleId}.zip`, req.body as Buffer);
-      res.json({ ok: true });
+      const uploadUrl = await createPresignedUploadUrl(bucket, key, expiresInSeconds);
+      res.json({ uploadUrl, expiresInSeconds });
     } catch(err) {
-      console.error(`Cannot write bundle with ID ${bundleId} to S3:`, err);
-      res.status(500).json({ error: 'Failed to save bundle' });
+      console.error(`Cannot create upload URL for bundle with ID ${bundleId}:`, err);
+      res.status(500).json({ error: 'Failed to prepare bundle upload' });
     }
   });
 
-  // Retrieve a bundle from S3
+  // Redirect to a short-lived presigned URL for downloading a bundle from S3.
   app.get('/api/bundle/:bundleId', async (req: Request, res: Response) => {
     const { bundleId } = req.params;
     const bucket = config['s3_bucket'];
@@ -164,17 +168,30 @@ export async function createApp(): Promise<Express> {
       res.status(500).json({ error: 'S3 bucket not configured' });
       return;
     }
+
+    const versionIdQuery = req.query.versionId;
+    const versionId =
+      typeof versionIdQuery === 'string'
+        ? versionIdQuery
+        : Array.isArray(versionIdQuery) && typeof versionIdQuery[0] === 'string'
+          ? versionIdQuery[0]
+          : undefined;
+
+    const expiresInSeconds = 300;
+    const key = `bundles/${bundleId}.zip`;
+
     try {
-      const data = await getFromS3(bucket, `bundles/${bundleId}.zip`);
-      res.setHeader('Content-Type', 'application/octet-stream');
-      res.send(Buffer.from(data));
-    } catch (err: any) {
-      if (err?.name === 'NoSuchKey') {
+      const exists = await objectExistsInS3(bucket, key, versionId);
+      if (!exists) {
         res.status(404).json({ error: 'Bundle not found' });
-      } else {
-        console.error(`Cannot read bundle with ID ${bundleId} from S3:`, err);
-        res.status(500).json({ error: 'Failed to retrieve bundle' });
+        return;
       }
+
+      const downloadUrl = await createPresignedDownloadUrl(bucket, key, versionId, expiresInSeconds);
+      res.redirect(307, downloadUrl);
+    } catch (err: any) {
+      console.error(`Cannot create download URL for bundle with ID ${bundleId} from S3:`, err);
+      res.status(500).json({ error: 'Failed to retrieve bundle' });
     }
   });
 

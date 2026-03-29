@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, jest } from '@jest/globals'
-import { uploadFilesystem, downloadFilesystem } from './filesystemSync'
+import { DownloadState, uploadFilesystem, downloadFilesystem } from './filesystemSync'
 import type { WebContainer, FileSystemAPI } from '@webcontainer/api'
 import JSZip from 'jszip'
 
@@ -36,7 +36,7 @@ describe('filesystemSync', () => {
   })
 
   describe('uploadFilesystem', () => {
-    it('should read files from the filesystem and POST a zip to the service', async () => {
+    it('should read files from the filesystem, request a presigned URL, then PUT the zip to it', async () => {
       const mockFiles = [
         { name: 'file1.txt', isFile: () => true, isDirectory: () => false },
         { name: 'subdirfile.txt', isFile: () => true, isDirectory: () => false },
@@ -47,11 +47,18 @@ describe('filesystemSync', () => {
         .mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
         .mockResolvedValueOnce(new Uint8Array([4, 5, 6]))
 
-      const mockResponse = {
+      const mockPresignResponse = {
+        ok: true,
+        statusText: 'OK',
+        json: jest.fn<any>().mockResolvedValue({ uploadUrl: 'http://example.com/presigned-upload' }),
+      }
+      const mockUploadResponse = {
         ok: true,
         statusText: 'OK',
       }
-      mockFetch.mockResolvedValue(mockResponse)
+      mockFetch
+        .mockResolvedValueOnce(mockPresignResponse)
+        .mockResolvedValueOnce(mockUploadResponse)
 
       const response = await uploadFilesystem(mockWebContainer as WebContainer, 'http://example.com/upload')
 
@@ -59,16 +66,23 @@ describe('filesystemSync', () => {
         'http://example.com/upload',
         expect.objectContaining({
           method: 'POST',
+        })
+      )
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://example.com/presigned-upload',
+        expect.objectContaining({
+          method: 'PUT',
           headers: {
             'Content-Type': 'application/zip',
           },
         })
       )
 
-      expect(response).toBe(mockResponse)
+      expect(response).toBe(mockUploadResponse)
     })
 
-    it('should throw an error if the upload fails', async () => {
+    it('should throw an error if requesting the presigned URL fails', async () => {
       const mockFiles = [{ name: 'file.txt', isFile: () => true, isDirectory: () => false }]
 
       mockReaddir.mockResolvedValue(mockFiles)
@@ -81,7 +95,25 @@ describe('filesystemSync', () => {
       mockFetch.mockResolvedValue(mockResponse)
 
       await expect(uploadFilesystem(mockWebContainer as WebContainer, 'http://example.com/upload')).rejects.toThrow(
-        'Failed to upload filesystem: Internal Server Error'
+        'Failed to prepare filesystem upload: Internal Server Error'
+      )
+    })
+
+    it('should throw an error if the presigned URL response is missing uploadUrl', async () => {
+      const mockFiles = [{ name: 'file.txt', isFile: () => true, isDirectory: () => false }]
+
+      mockReaddir.mockResolvedValue(mockFiles)
+      mockReadFile.mockResolvedValue(new Uint8Array([1, 2, 3]))
+
+      const mockResponse = {
+        ok: true,
+        statusText: 'OK',
+        json: jest.fn<any>().mockResolvedValue({}),
+      }
+      mockFetch.mockResolvedValue(mockResponse)
+
+      await expect(uploadFilesystem(mockWebContainer as WebContainer, 'http://example.com/upload')).rejects.toThrow(
+        'Failed to prepare filesystem upload: missing upload URL'
       )
     })
 
@@ -97,13 +129,20 @@ describe('filesystemSync', () => {
       const mockResponse = {
         ok: true,
         statusText: 'OK',
+        json: jest.fn<any>().mockResolvedValue({ uploadUrl: 'http://example.com/presigned-upload' }),
       }
-      mockFetch.mockResolvedValue(mockResponse)
+      const mockUploadResponse = {
+        ok: true,
+        statusText: 'OK',
+      }
+      mockFetch
+        .mockResolvedValueOnce(mockResponse)
+        .mockResolvedValueOnce(mockUploadResponse)
 
       await uploadFilesystem(mockWebContainer as WebContainer, 'http://example.com/upload')
 
       expect(mockReaddir).toHaveBeenCalledTimes(2)
-      expect(mockFetch).toHaveBeenCalled()
+      expect(mockFetch).toHaveBeenCalledTimes(2)
     })
   })
 
@@ -159,16 +198,18 @@ describe('filesystemSync', () => {
       expect(mockMkdir).toHaveBeenCalledWith('/deep/nested/path', { recursive: true })
     })
 
-    it('should throw an error if the download fails', async () => {
+    it('should return Error state if the download fails', async () => {
       const mockResponse = {
         ok: false,
+        status: 500,
         statusText: 'Not Found',
+        text: jest.fn<any>().mockResolvedValue('server error'),
       }
       mockFetch.mockResolvedValue(mockResponse)
 
-      await expect(downloadFilesystem(mockWebContainer as WebContainer, 'http://example.com/download')).rejects.toThrow(
-        'Failed to download filesystem: Not Found'
-      )
+      const result = await downloadFilesystem(mockWebContainer as WebContainer, 'http://example.com/download')
+
+      expect(result).toBe(DownloadState.Error)
     })
 
     it('should handle empty zip files', async () => {
