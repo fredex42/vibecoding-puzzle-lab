@@ -5,10 +5,16 @@
   "sourceRoot": "apps/server/src",
   "targets": {
     "build": {
-      "executor": "nx:run-commands",
+      "executor": "@nx/esbuild:esbuild",
       "options": {
-        "command": "tsc -p tsconfig.json",
-        "cwd": "apps/server"
+        "main": "apps/server/src/local.ts",
+        "additionalEntryPoints": ["apps/server/src/lambda.ts"],
+        "tsConfig": "apps/server/tsconfig.json",
+        "outputPath": "apps/server/dist",
+        "platform": "node",
+        "format": ["esm"],
+        "bundle": true,
+        "sourcemap": true
       },
       "outputs": ["{projectRoot}/dist"]
     },
