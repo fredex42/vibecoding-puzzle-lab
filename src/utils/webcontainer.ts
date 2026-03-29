@@ -403,7 +403,9 @@ export async function setupWebContainer(
     const result = await downloadFilesystem(container, `/api/bundle/${bundleId}`);
     switch(result) {
       case 'downloaded':
-        logLine(onLog, '[system] initial filesystem loaded from server');
+        logLine(onLog, '[system] initial filesystem loaded from server, updating dependencies...');
+        await runCommand(container, 'npm', ['install'], onLog, '/app');
+        logLine(onLog, '[system] loading code from /app/src/main.jsx')
         const loadedCode = await readRootFile(container, '/app/src/main.jsx');
         if(loadedCode) {
           onCodeLoaded(loadedCode);

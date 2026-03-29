@@ -144,6 +144,89 @@ describe('filesystemSync', () => {
       expect(mockReaddir).toHaveBeenCalledTimes(2)
       expect(mockFetch).toHaveBeenCalledTimes(2)
     })
+
+    it('should include dot-files and dot-directories in the uploaded zip', async () => {
+      const rootFiles = [
+        { name: '.env', isFile: () => true, isDirectory: () => false },
+        { name: '.config', isFile: () => false, isDirectory: () => true },
+      ]
+      const dotDirFiles = [{ name: '.secret', isFile: () => true, isDirectory: () => false }]
+
+      mockReaddir
+        .mockResolvedValueOnce(rootFiles)
+        .mockResolvedValueOnce(dotDirFiles)
+      mockReadFile
+        .mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
+        .mockResolvedValueOnce(new Uint8Array([4, 5, 6]))
+
+      const mockPresignResponse = {
+        ok: true,
+        statusText: 'OK',
+        json: jest.fn<any>().mockResolvedValue({ uploadUrl: 'http://example.com/presigned-upload' }),
+      }
+      const mockUploadResponse = {
+        ok: true,
+        statusText: 'OK',
+      }
+      mockFetch
+        .mockResolvedValueOnce(mockPresignResponse)
+        .mockResolvedValueOnce(mockUploadResponse)
+
+      await uploadFilesystem(mockWebContainer as WebContainer, 'http://example.com/upload')
+
+      const uploadCall = mockFetch.mock.calls[1]
+      const uploadRequest = uploadCall[1] as { body?: Blob }
+      const uploadBody = uploadRequest.body as Blob
+      const uploadedZip = new JSZip()
+      await uploadedZip.loadAsync(await uploadBody.arrayBuffer())
+
+      expect(uploadedZip.file('.env')).toBeTruthy()
+      expect(uploadedZip.file('.config/.secret')).toBeTruthy()
+      expect(uploadedZip.folder('.config')).toBeTruthy()
+    })
+
+    it('should include symlink entries such as node_modules/.bin tools', async () => {
+      const rootFiles = [{ name: 'node_modules', isFile: () => false, isDirectory: () => true }]
+      const nodeModulesFiles = [{ name: '.bin', isFile: () => false, isDirectory: () => true }]
+      const dotBinFiles = [
+        {
+          name: 'vite',
+          isFile: () => false,
+          isDirectory: () => false,
+          isSymbolicLink: () => true,
+        },
+      ]
+
+      mockReaddir
+        .mockResolvedValueOnce(rootFiles)
+        .mockResolvedValueOnce(nodeModulesFiles)
+        .mockResolvedValueOnce(dotBinFiles)
+      mockReadFile.mockResolvedValueOnce(new Uint8Array([35, 33, 47, 117, 115, 114, 47, 98, 105, 110]))
+
+      const mockPresignResponse = {
+        ok: true,
+        statusText: 'OK',
+        json: jest.fn<any>().mockResolvedValue({ uploadUrl: 'http://example.com/presigned-upload' }),
+      }
+      const mockUploadResponse = {
+        ok: true,
+        statusText: 'OK',
+      }
+      mockFetch
+        .mockResolvedValueOnce(mockPresignResponse)
+        .mockResolvedValueOnce(mockUploadResponse)
+
+      await uploadFilesystem(mockWebContainer as WebContainer, 'http://example.com/upload')
+
+      const uploadCall = mockFetch.mock.calls[1]
+      const uploadRequest = uploadCall[1] as { body?: Blob }
+      const uploadBody = uploadRequest.body as Blob
+      const uploadedZip = new JSZip()
+      await uploadedZip.loadAsync(await uploadBody.arrayBuffer())
+
+      expect(uploadedZip.folder('node_modules/.bin')).toBeTruthy()
+      expect(uploadedZip.file('node_modules/.bin/vite')).toBeTruthy()
+    })
   })
 
   describe('downloadFilesystem', () => {

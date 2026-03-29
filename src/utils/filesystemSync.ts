@@ -16,13 +16,18 @@ async function addDirectoryToZip(
   const entries = await fs.readdir(path, { withFileTypes: true })
 
   for (const entry of entries) {
-    const fullPath = `${path}/${entry.name}`.replace(/^\//, '')
+    const fullPath = `${path}/${entry.name}`.replace(/\/+/g, '/')
+    const zipPath = fullPath.replace(/^\/+/, '')
+    const symbolicLinkEntry = typeof (entry as any).isSymbolicLink === 'function' ? (entry as any).isSymbolicLink() : false
 
     if (entry.isDirectory?.()) {
+      // Explicitly keep directory entries so empty folders are preserved in the archive.
+      zip.folder(zipPath)
       await addDirectoryToZip(fs, zip, fullPath)
-    } else if (entry.isFile?.()) {
+    } else if (entry.isFile?.() || symbolicLinkEntry) {
+      // Many package-manager bins are symlinks (for example node_modules/.bin/*).
       const content = await fs.readFile(fullPath)
-      zip.file(fullPath, content)
+      zip.file(zipPath, content)
     }
   }
 }
