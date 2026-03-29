@@ -10,6 +10,7 @@
     "allowSyntheticDefaultImports": true,
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
+    "noEmit": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
     "jsx": "react-jsx",
@@ -23,8 +24,5 @@
     "noUncheckedSideEffectImports": true
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["node_modules"],
-  "references": [
-    { "path": "./tsconfig.spec.json" }
-  ]
+  "exclude": ["node_modules"]
 }
