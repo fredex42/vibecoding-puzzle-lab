@@ -114,6 +114,7 @@ export function PuzzleEditor() {
         <EditorView
           bundleId={bundleId ?? ""}
           code={code}
+          onCodeLoaded={setCode}
           modelState={modelState}
           containerState={containerState}
           setContainerState={setContainerState}

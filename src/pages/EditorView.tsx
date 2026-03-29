@@ -10,6 +10,7 @@ import "./EditorView.css";
 interface EditorViewProps {
   bundleId: string;
   code: string;
+  onCodeLoaded: (code: string) => void;
   modelState: ModelState;
   containerState: ContainerState;
   setContainerState: (state: ContainerState) => void;
@@ -20,6 +21,7 @@ interface EditorViewProps {
 function EditorView({
   bundleId,
   code,
+  onCodeLoaded,
   modelState,
   containerState,
   setContainerState,
@@ -98,6 +100,8 @@ function EditorView({
         <div className="editor-view-preview-stage">
           <div className="editor-view-preview-shell">
             <PreviewFrame
+              bundleId={bundleId}
+              codeDidChange={onCodeLoaded}
               code={code}
               onPreviewError={handlePreviewError}
               setProgressBarValue={setProgressBarValue}

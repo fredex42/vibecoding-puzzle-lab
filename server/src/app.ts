@@ -140,7 +140,7 @@ export async function createApp(): Promise<Express> {
   });
 
   // Save a bundle to S3
-  app.post('/api/bundle/:bundleId', express.raw({ type: '*/*', limit: '50mb' }), async (req: Request, res: Response) => {
+  app.post('/api/bundle/:bundleId', express.raw({ type: '*/*', limit: '500mb' }), async (req: Request, res: Response) => {
     const { bundleId } = req.params;
     const bucket = config['s3_bucket'];
     if (!bucket) {

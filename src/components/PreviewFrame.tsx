@@ -9,8 +9,11 @@ import {
 } from "../utils/webcontainer";
 import type { WebContainer } from "@webcontainer/api";
 import { securePreviewDoc } from "../pages/InitialContent";
+import { uploadFilesystem } from "../utils/filesystemSync";
 
 interface PreviewFrameProps {
+  bundleId: string;
+  codeDidChange: (code: string) => void;
   code: string;
   onPreviewError: (error: PreviewError | null) => void;
   setProgressBarValue: (value: number) => void;
@@ -31,7 +34,9 @@ export type PreviewError = {
 };
 
 export const PreviewFrame: React.FC<PreviewFrameProps> = ({
+  bundleId,
   code,
+  codeDidChange,
   onPreviewError,
   setProgressBarValue,
   setProgressBarTotal,
@@ -99,7 +104,9 @@ export const PreviewFrame: React.FC<PreviewFrameProps> = ({
     async function initializeContainer() {
       const { container, previewUrl: url } = await setupWebContainer(
         runtimeRef.current,
+        bundleId,
         code,
+        codeDidChange,
         addDevServerLog,
         (stage) => {
           if (stage === "booting") {
@@ -146,6 +153,7 @@ export const PreviewFrame: React.FC<PreviewFrameProps> = ({
         return;
 
       await writeRootFile(webContainerInstance, code);
+      await uploadFilesystem(webContainerInstance, `/api/bundle/${bundleId}`);
     }
 
     updateCodeInContainer().catch((error) => {

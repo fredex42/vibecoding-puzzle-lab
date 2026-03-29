@@ -1,4 +1,5 @@
 import { WebContainer, type FileSystemAPI, type WebContainerProcess } from '@webcontainer/api'
+import { downloadFilesystem } from './filesystemSync'
 
 export enum ContainerState {
   NotReady = 'not_ready',
@@ -346,6 +347,10 @@ async function ensureDevServerRunning(
   return runtime.handles.devServerStart
 }
 
+export async function readRootFile(container: WebContainer, path: string): Promise<string> {
+  return container.fs.readFile(path, 'utf-8');
+}
+
 export async function writeRootFile(container: WebContainer, sourceCode: string) {
   await container.fs.writeFile('/app/index.html', getPreviewIndexHtml())
   await container.fs.writeFile('/app/src/main.jsx', sourceCode)
@@ -379,7 +384,9 @@ export async function acquireWebContainer(runtime: WebContainerRuntimeState): Pr
 
 export async function setupWebContainer(
   runtime: WebContainerRuntimeState,
+  bundleId: string,
   sourceCode: string,
+  onCodeLoaded: (code: string) => void,
   onLog: LogFn,
   onStage?: (stage: SetupStage) => void,
   progressFn?: (counter?:number, total?: number) => void
@@ -390,11 +397,34 @@ export async function setupWebContainer(
   logLine(onLog, '[system] WebContainer boot complete')
 
   onStage?.('busy')
-  logLine(onLog, '[system] initializing project...')
-  await ensureProjectInitialized(runtime, container, onLog, progressFn)
-
-  logLine(onLog, '[system] writing /app/src/main.jsx')
-  await writeRootFile(container, sourceCode)
+  //Try to load initial filesystem from server, if it fails, we'll just start with an empty container and scaffold the project there
+  logLine(onLog, '[system] loading initial filesystem from server...');
+  try {
+    const result = await downloadFilesystem(container, `/api/bundle/${bundleId}`);
+    switch(result) {
+      case 'downloaded':
+        logLine(onLog, '[system] initial filesystem loaded from server');
+        const loadedCode = await readRootFile(container, '/app/src/main.jsx');
+        if(loadedCode) {
+          onCodeLoaded(loadedCode);
+        } else {
+          throw new Error("Expected to find /app/src/main.jsx in the loaded filesystem, but it was missing or empty");
+        }
+        break;
+      case 'not_found':
+        logLine(onLog, '[system] no initial filesystem found on server, initializing new project...');
+        await ensureProjectInitialized(runtime, container, onLog, progressFn);
+        logLine(onLog, '[system] writing /app/src/main.jsx')
+        await writeRootFile(container, sourceCode)
+        break;
+      case 'error':
+        //logLine(onLog, '[system] error loading initial filesystem from server, starting with empty container');
+        throw new Error("Could not download and set up bundle");
+    }
+  } catch(err) {
+    logLine(onLog, `[system] failed to load initial filesystem from server: ${String(err)}`);
+    throw new Error("Cannot load bundle at present");
+  }
 
   if(progressFn) progressFn(8,9);
   logLine(onLog, '[system] starting preview server...')

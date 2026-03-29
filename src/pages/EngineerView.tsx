@@ -23,6 +23,7 @@ interface EngineerViewProps {
 }
 
 function EngineerView({
+  bundleId,
   modelState,
   code,
   setCode,
@@ -66,6 +67,8 @@ function EngineerView({
           )}
           </div>
           <PreviewFrame
+            bundleId={bundleId}
+            codeDidChange={setCode}
             code={code}
             onPreviewError={handlePreviewError}
             setProgressBarValue={setProgressBarValue}
